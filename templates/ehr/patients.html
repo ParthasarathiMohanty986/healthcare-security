@@ -1,0 +1,81 @@
+{% extends 'base/base.html' %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-primary text-white d-flex justify-content-between">
+        <span><i class="fas fa-users me-2"></i>Patient List</span>
+        <span id="patient-count" class="badge bg-light text-dark">Loading...</span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0" id="patients-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Patient ID</th>
+                    <th>Name</th>
+                    <th>Blood Group</th>
+                    <th>Contact</th>
+                    <th>Assigned Doctor</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="patients-body">
+                <tr>
+                    <td colspan="6" class="text-center py-4">
+                        <i class="fas fa-spinner fa-spin"></i> Loading patients...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('page-title').textContent = 'Patient List';
+
+async function loadPatients() {
+    try {
+        const res = await fetch(`${API_BASE}/ehr/patients/`, {
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        const patients = data.patients || [];
+
+        document.getElementById('patient-count').textContent =
+            patients.length + ' patients';
+
+        const tbody = document.getElementById('patients-body');
+        if (patients.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">No patients found</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = patients.map(p => `
+            <tr>
+                <td><span class="badge bg-secondary">${p.patient_id}</span></td>
+                <td><strong>${p.first_name} ${p.last_name}</strong></td>
+                <td><span class="badge bg-danger">${p.blood_group}</span></td>
+                <td>${p.contact_number}</td>
+                <td>${p.assigned_doctor || 'Not assigned'}</td>
+                <td>
+                    <a href="/ehr/?patient_id=${p.patient_id}"
+                       class="btn btn-sm btn-primary me-1">
+                        <i class="fas fa-file-medical"></i> EHR
+                    </a>
+                    <a href="/emergency/?patient_id=${p.patient_id}"
+                       class="btn btn-sm btn-danger">
+                        <i class="fas fa-ambulance"></i> Emergency
+                    </a>
+                </td>
+            </tr>
+        `).join('');
+    } catch(e) {
+        document.getElementById('patients-body').innerHTML =
+            '<tr><td colspan="6" class="text-center text-danger">Error loading patients</td></tr>';
+    }
+}
+
+loadPatients();
+</script>
+{% endblock %}

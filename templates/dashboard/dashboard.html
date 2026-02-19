@@ -1,0 +1,178 @@
+{% extends 'base/base.html' %}
+
+{% block content %}
+<div id="loading" style="display:none; text-align:center; padding:40px;">
+    <i class="fas fa-spinner fa-spin fa-2x text-primary"></i>
+</div>
+
+<!-- Stats Row -->
+<div class="row" id="stats-row">
+    <div class="col-md-3">
+        <div class="stat-card blue">
+            <i class="fas fa-users fa-2x mb-2"></i>
+            <h3 id="total-patients">--</h3>
+            <div>Total Patients</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card green">
+            <i class="fas fa-check-circle fa-2x mb-2"></i>
+            <h3 id="access-granted">--</h3>
+            <div>Access Granted Today</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card red">
+            <i class="fas fa-times-circle fa-2x mb-2"></i>
+            <h3 id="access-denied">--</h3>
+            <div>Access Denied Today</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card orange">
+            <i class="fas fa-ambulance fa-2x mb-2"></i>
+            <h3 id="emergency-tokens">--</h3>
+            <div>Emergency Tokens Issued</div>
+        </div>
+    </div>
+</div>
+
+<!-- User Attributes Card -->
+<div class="row mt-2">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <i class="fas fa-id-badge me-2"></i>Your Attributes
+            </div>
+            <div class="card-body" id="user-attributes">
+                <div class="text-center">
+                    <i class="fas fa-spinner fa-spin"></i> Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <i class="fas fa-history me-2"></i>Recent Audit Logs
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0" id="audit-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Time</th>
+                            <th>Action</th>
+                            <th>Resource</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-body">
+                        <tr>
+                            <td colspan="4" class="text-center py-3">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+    const user = getUser();
+    if (!user) return;
+
+    // Load user attributes
+    document.getElementById('user-attributes').innerHTML = `
+        <table class="table table-sm">
+            <tr>
+                <td><i class="fas fa-user text-primary me-2"></i><strong>Name</strong></td>
+                <td>${user.full_name || user.username}</td>
+            </tr>
+            <tr>
+                <td><i class="fas fa-briefcase text-primary me-2"></i><strong>Role</strong></td>
+                <td><span class="badge bg-primary">${user.role}</span></td>
+            </tr>
+            <tr>
+                <td><i class="fas fa-hospital text-primary me-2"></i><strong>Department</strong></td>
+                <td>${user.department}</td>
+            </tr>
+            <tr>
+                <td><i class="fas fa-shield-alt text-primary me-2"></i><strong>Clearance</strong></td>
+                <td><span class="badge bg-info">Level ${user.clearance_level}</span></td>
+            </tr>
+            <tr>
+                <td><i class="fas fa-ambulance text-primary me-2"></i><strong>Emergency Auth</strong></td>
+                <td>${user.is_emergency_authorized ?
+                    '<span class="badge bg-danger">✅ Authorized</span>' :
+                    '<span class="badge bg-secondary">❌ Not Authorized</span>'}</td>
+            </tr>
+        </table>
+    `;
+
+    // Load patients count
+    try {
+        const res = await fetch(`${API_BASE}/ehr/patients/`, {
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        document.getElementById('total-patients').textContent = data.count || 0;
+    } catch(e) {}
+
+    // Load audit logs
+    try {
+        const res = await fetch(`${API_BASE}/audit/logs/`, {
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        const logs = data.logs || [];
+
+        let granted = logs.filter(l => l.access_granted).length;
+        let denied = logs.filter(l => !l.access_granted).length;
+        let emergency = logs.filter(l => l.is_emergency).length;
+
+        document.getElementById('access-granted').textContent = granted;
+        document.getElementById('access-denied').textContent = denied;
+        document.getElementById('emergency-tokens').textContent = emergency;
+
+        // Fill audit table
+        const tbody = document.getElementById('audit-body');
+        if (logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No logs yet</td></tr>';
+        } else {
+            tbody.innerHTML = logs.slice(0, 8).map(log => `
+                <tr>
+                    <td style="font-size:12px;">
+                        ${new Date(log.timestamp).toLocaleTimeString()}
+                    </td>
+                    <td style="font-size:12px;">${log.action}</td>
+                    <td style="font-size:12px;">
+                        ${log.resource_type || '-'} ${log.resource_id || ''}
+                    </td>
+                    <td>
+                        ${log.access_granted ?
+                            '<span class="badge bg-success">✅ Granted</span>' :
+                            '<span class="badge bg-danger">❌ Denied</span>'}
+                        ${log.is_emergency ?
+                            '<span class="badge bg-warning text-dark">🚨</span>' : ''}
+                    </td>
+                </tr>
+            `).join('');
+        }
+    } catch(e) {
+        document.getElementById('audit-body').innerHTML =
+            '<tr><td colspan="4" class="text-center text-muted">No logs yet</td></tr>';
+        document.getElementById('access-granted').textContent = '0';
+        document.getElementById('access-denied').textContent = '0';
+        document.getElementById('emergency-tokens').textContent = '0';
+    }
+}
+
+loadDashboard();
+</script>
+{% endblock %}

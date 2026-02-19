@@ -1,0 +1,298 @@
+{% extends 'base/base.html' %}
+
+{% block content %}
+
+<div class="row">
+    <!-- Request EAT -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-danger text-white">
+                <i class="fas fa-ambulance me-2"></i>
+                Request Emergency Access Token
+            </div>
+            <div class="card-body">
+
+                <div id="not-authorized-msg" class="alert alert-warning d-none">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    You are not authorized to request Emergency Access Tokens.
+                    Contact your administrator.
+                </div>
+
+                <div id="eat-form">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Patient ID</label>
+                        <input type="text" class="form-control"
+                               id="eat-patient-id" placeholder="e.g. P001">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Emergency Reason</label>
+                        <textarea class="form-control" id="eat-reason" rows="3"
+                            placeholder="Describe the emergency situation..."></textarea>
+                    </div>
+                    <button class="btn btn-danger w-100" onclick="requestEAT()">
+                        <i class="fas fa-bolt me-2"></i>
+                        Generate Emergency Token
+                    </button>
+                </div>
+
+                <!-- Token Result -->
+                <div id="token-result" class="mt-3 d-none">
+                    <div class="emergency-banner">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="fas fa-key me-2"></i>
+                                <strong>Emergency Token Generated!</strong>
+                            </div>
+                            <div class="token-timer" id="countdown">10:00</div>
+                        </div>
+                        <hr style="border-color:rgba(255,255,255,0.3);">
+                        <div style="font-size:12px; word-break:break-all;">
+                            <strong>Token ID:</strong>
+                            <span id="generated-token-id"></span>
+                        </div>
+                        <div class="mt-2">
+                            <strong>Access Scope:</strong>
+                            <span class="badge bg-light text-dark me-1">EHR Data</span>
+                            <span class="badge bg-light text-dark me-1">Medical Reports</span>
+                            <span class="badge bg-light text-dark">Lab Results</span>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-light btn-sm"
+                                    onclick="copyToken()">
+                                <i class="fas fa-copy me-1"></i>Copy Token
+                            </button>
+                            <button class="btn btn-outline-light btn-sm ms-2"
+                                    onclick="useToken()">
+                                <i class="fas fa-external-link-alt me-1"></i>
+                                Use Token for EHR Access
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- My Tokens -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-dark text-white">
+                <i class="fas fa-list me-2"></i>My Emergency Tokens
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Token ID</th>
+                            <th>Patient</th>
+                            <th>Status</th>
+                            <th>Expires</th>
+                            <th>Used</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tokens-body">
+                        <tr>
+                            <td colspan="5" class="text-center py-3">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Validate Token -->
+<div class="card mt-3">
+    <div class="card-header bg-warning text-dark">
+        <i class="fas fa-check-circle me-2"></i>Validate Emergency Token
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-8">
+                <input type="text" class="form-control"
+                       id="validate-token-input"
+                       placeholder="Paste token ID to validate...">
+            </div>
+            <div class="col-md-4">
+                <button class="btn btn-warning w-100"
+                        onclick="validateToken()">
+                    <i class="fas fa-search me-1"></i>Validate Token
+                </button>
+            </div>
+        </div>
+        <div id="validate-result" class="mt-3"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('page-title').textContent = 'Emergency Access';
+
+let currentTokenId = null;
+let currentPatientId = null;
+let countdownInterval = null;
+
+// Check if URL has patient_id
+const urlParams = new URLSearchParams(window.location.search);
+const urlPatientId = urlParams.get('patient_id');
+if (urlPatientId) {
+    document.getElementById('eat-patient-id').value = urlPatientId;
+}
+
+// Check authorization
+const user = getUser();
+if (user && !user.is_emergency_authorized) {
+    document.getElementById('not-authorized-msg').classList.remove('d-none');
+    document.getElementById('eat-form').style.opacity = '0.5';
+    document.getElementById('eat-form').style.pointerEvents = 'none';
+}
+
+async function requestEAT() {
+    const patientId = document.getElementById('eat-patient-id').value.trim();
+    const reason = document.getElementById('eat-reason').value.trim();
+
+    if (!patientId || !reason) {
+        alert('Please fill in Patient ID and reason');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/emergency/request/`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ patient_id: patientId, reason: reason })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            currentTokenId = data.token_id;
+            currentPatientId = patientId;
+
+            document.getElementById('generated-token-id').textContent =
+                data.token_id;
+            document.getElementById('token-result').classList.remove('d-none');
+
+            // Start countdown
+            startCountdown(data.validity_minutes * 60);
+            loadMyTokens();
+        } else {
+            alert('❌ ' + data.message);
+        }
+    } catch(e) {
+        alert('Error requesting token');
+    }
+}
+
+function startCountdown(seconds) {
+    if (countdownInterval) clearInterval(countdownInterval);
+
+    let remaining = seconds;
+    countdownInterval = setInterval(() => {
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        document.getElementById('countdown').textContent =
+            `${mins}:${secs.toString().padStart(2, '0')}`;
+
+        if (remaining <= 0) {
+            clearInterval(countdownInterval);
+            document.getElementById('countdown').textContent = 'EXPIRED';
+            document.getElementById('countdown').style.color = '#aaa';
+        }
+        remaining--;
+    }, 1000);
+}
+
+function copyToken() {
+    navigator.clipboard.writeText(currentTokenId);
+    alert('✅ Token copied to clipboard!');
+}
+
+function useToken() {
+    if (currentTokenId && currentPatientId) {
+        window.location.href =
+            `/ehr/?patient_id=${currentPatientId}&token_id=${currentTokenId}`;
+    }
+}
+
+async function loadMyTokens() {
+    try {
+        const res = await fetch(`${API_BASE}/emergency/my-tokens/`, {
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        const tokens = data.tokens || [];
+
+        const tbody = document.getElementById('tokens-body');
+        if (tokens.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="5" class="text-center text-muted">No tokens yet</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = tokens.map(t => {
+            const statusBadge = {
+                'active': '<span class="badge bg-success">Active</span>',
+                'expired': '<span class="badge bg-secondary">Expired</span>',
+                'revoked': '<span class="badge bg-danger">Revoked</span>',
+            }[t.status] || t.status;
+
+            return `
+                <tr>
+                    <td style="font-size:11px;">
+                        ${t.token_id.substring(0,8).toUpperCase()}...
+                    </td>
+                    <td>${t.patient_id}</td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size:11px;">
+                        ${new Date(t.expires_at).toLocaleTimeString()}
+                    </td>
+                    <td>${t.times_used}x</td>
+                </tr>
+            `;
+        }).join('');
+    } catch(e) {}
+}
+
+async function validateToken() {
+    const tokenId = document.getElementById('validate-token-input').value.trim();
+    if (!tokenId) { alert('Enter a token ID'); return; }
+
+    try {
+        const res = await fetch(`${API_BASE}/emergency/validate/`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ token_id: tokenId })
+        });
+        const data = await res.json();
+
+        const resultDiv = document.getElementById('validate-result');
+        if (data.valid) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <strong>✅ Token Valid!</strong><br>
+                    Patient: ${data.patient_id}<br>
+                    Remaining Time: <strong>${data.remaining_time}</strong><br>
+                    Times Used: ${data.times_used}
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>❌ Token Invalid!</strong><br>
+                    ${data.message}
+                </div>
+            `;
+        }
+    } catch(e) {
+        alert('Error validating token');
+    }
+}
+
+loadMyTokens();
+</script>
+{% endblock %}

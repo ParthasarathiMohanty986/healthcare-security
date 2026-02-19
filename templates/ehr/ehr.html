@@ -1,0 +1,261 @@
+{% extends 'base/base.html' %}
+
+{% block content %}
+
+<!-- Search Bar -->
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">Patient ID</label>
+                <input type="text" class="form-control" id="patient-id-input"
+                       placeholder="e.g. P001" value="">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">Location Context</label>
+                <select class="form-select" id="location-input">
+                    <option value="">Select Location</option>
+                    <option value="cardiology">Cardiology Ward</option>
+                    <option value="icu">ICU</option>
+                    <option value="emergency">Emergency Room</option>
+                    <option value="general">General Ward</option>
+                    <option value="psychiatry">Psychiatry Ward</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">Emergency Token (optional)</label>
+                <input type="text" class="form-control" id="token-input"
+                       placeholder="Paste EAT token here">
+            </div>
+            <div class="col-md-2 mt-4">
+                <button class="btn btn-primary w-100" onclick="loadEHR()">
+                    <i class="fas fa-search me-1"></i> Access
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results -->
+<div id="results-section" style="display:none;">
+
+    <!-- Patient Info -->
+    <div class="card mb-3" id="patient-info-card">
+        <div class="card-header bg-dark text-white">
+            <i class="fas fa-user-injured me-2"></i>Patient Information
+        </div>
+        <div class="card-body" id="patient-info-body"></div>
+    </div>
+
+    <!-- Access Summary -->
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="card text-center border-success">
+                <div class="card-body">
+                    <h3 class="text-success" id="accessible-count">0</h3>
+                    <div>Records Accessible</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center border-danger">
+                <div class="card-body">
+                    <h3 class="text-danger" id="denied-count">0</h3>
+                    <div>Records Denied</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center border-primary">
+                <div class="card-body">
+                    <h3 class="text-primary" id="total-count">0</h3>
+                    <div>Total Records</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Emergency Banner -->
+    <div id="emergency-banner" class="emergency-banner d-none">
+        <i class="fas fa-ambulance me-2"></i>
+        <strong>EMERGENCY ACCESS MODE ACTIVE</strong> — 
+        All records accessible via Emergency Token
+    </div>
+
+    <!-- Accessible Records -->
+    <div class="card mb-3">
+        <div class="card-header bg-success text-white">
+            <i class="fas fa-check-circle me-2"></i>
+            Accessible Records
+        </div>
+        <div class="card-body" id="accessible-records"></div>
+    </div>
+
+    <!-- Denied Records -->
+    <div class="card mb-3">
+        <div class="card-header bg-danger text-white">
+            <i class="fas fa-times-circle me-2"></i>
+            Denied Records
+        </div>
+        <div class="card-body" id="denied-records"></div>
+    </div>
+</div>
+
+<div id="loading" class="text-center py-5" style="display:none;">
+    <i class="fas fa-spinner fa-spin fa-3x text-primary"></i>
+    <p class="mt-3">Running Attribute Engine...</p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('page-title').textContent = 'EHR Access';
+
+// Get patient_id from URL if coming from patients page
+const urlParams = new URLSearchParams(window.location.search);
+const urlPatientId = urlParams.get('patient_id');
+if (urlPatientId) {
+    document.getElementById('patient-id-input').value = urlPatientId;
+    loadEHR();
+}
+
+async function loadEHR() {
+    const patientId = document.getElementById('patient-id-input').value.trim();
+    const location = document.getElementById('location-input').value;
+    const tokenId = document.getElementById('token-input').value.trim();
+
+    if (!patientId) {
+        alert('Please enter a Patient ID');
+        return;
+    }
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('results-section').style.display = 'none';
+
+    let url = `${API_BASE}/ehr/patients/${patientId}/ehr/?`;
+    if (location) url += `location=${location}&`;
+    if (tokenId) url += `token_id=${tokenId}&emergency=true`;
+
+    try {
+        const res = await fetch(url, { headers: authHeaders() });
+        const data = await res.json();
+
+        if (res.status === 404) {
+            alert('Patient not found!');
+            document.getElementById('loading').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('results-section').style.display = 'block';
+
+        // Patient info
+        const p = data.patient;
+        document.getElementById('patient-info-body').innerHTML = `
+            <div class="row">
+                <div class="col-md-3">
+                    <strong>Patient ID:</strong>
+                    <span class="badge bg-secondary ms-2">${p.patient_id}</span>
+                </div>
+                <div class="col-md-3">
+                    <strong>Name:</strong> ${p.first_name} ${p.last_name}
+                </div>
+                <div class="col-md-3">
+                    <strong>Blood Group:</strong>
+                    <span class="badge bg-danger ms-2">${p.blood_group}</span>
+                </div>
+                <div class="col-md-3">
+                    <strong>Contact:</strong> ${p.contact_number}
+                </div>
+            </div>
+        `;
+
+        // Summary
+        document.getElementById('accessible-count').textContent =
+            data.summary.accessible;
+        document.getElementById('denied-count').textContent =
+            data.summary.denied;
+        document.getElementById('total-count').textContent =
+            data.summary.total_records;
+
+        // Emergency banner
+        if (data.is_emergency) {
+            document.getElementById('emergency-banner').classList.remove('d-none');
+        }
+
+        // Accessible records
+        const accessibleDiv = document.getElementById('accessible-records');
+        if (data.accessible_records.length === 0) {
+            accessibleDiv.innerHTML =
+                '<p class="text-muted text-center">No accessible records</p>';
+        } else {
+            accessibleDiv.innerHTML = data.accessible_records.map(r => `
+                <div class="card mb-2 border-success">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="badge bg-primary">${r.record_type}</span>
+                            <span class="badge bg-warning text-dark">
+                                Sensitivity: ${r.sensitivity_level}
+                            </span>
+                        </div>
+                        <p><strong>Diagnosis:</strong> ${r.diagnosis}</p>
+                        <p><strong>Treatment:</strong>
+                            ${r.treatment_plan || 'N/A'}</p>
+                        <p><strong>Medications:</strong>
+                            ${r.medications || 'N/A'}</p>
+                        <hr>
+                        <div>
+                            ${r.access_decision.checks_passed.map(c =>
+                                `<div class="check-passed">
+                                    <i class="fas fa-check me-1"></i>${c}
+                                </div>`
+                            ).join('')}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Denied records
+        const deniedDiv = document.getElementById('denied-records');
+        if (data.denied_records.length === 0) {
+            deniedDiv.innerHTML =
+                '<p class="text-muted text-center">No denied records</p>';
+        } else {
+            deniedDiv.innerHTML = data.denied_records.map(r => `
+                <div class="card mb-2 border-danger">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="badge bg-secondary">${r.record_type}</span>
+                            <span class="badge bg-danger">
+                                Sensitivity: ${r.sensitivity_level}
+                            </span>
+                        </div>
+                        <div>
+                            ${r.access_decision.checks_failed ?
+                                r.access_decision.checks_failed.map(c =>
+                                    `<div class="check-failed">
+                                        <i class="fas fa-times me-1"></i>${c}
+                                    </div>`
+                                ).join('') : ''}
+                        </div>
+                        <div class="mt-2">
+                            <strong>Reasons:</strong>
+                            ${r.access_decision.reasons.map(reason =>
+                                `<span class="badge bg-danger me-1">${reason}</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+    } catch(e) {
+        document.getElementById('loading').style.display = 'none';
+        alert('Error accessing EHR. Check console for details.');
+        console.error(e);
+    }
+}
+</script>
+{% endblock %}

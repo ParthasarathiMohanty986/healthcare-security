@@ -1,0 +1,218 @@
+{% extends 'base/base.html' %}
+
+{% block content %}
+
+<div class="card">
+    <div class="card-header bg-dark text-white d-flex justify-content-between">
+        <span><i class="fas fa-history me-2"></i>Audit Logs</span>
+        <button class="btn btn-sm btn-outline-light" onclick="loadLogs()">
+            <i class="fas fa-sync me-1"></i>Refresh
+        </button>
+    </div>
+
+    <!-- Filters -->
+    <div class="card-body border-bottom">
+        <div class="row">
+            <div class="col-md-3">
+                <select class="form-select form-select-sm"
+                        id="filter-status" onchange="filterLogs()">
+                    <option value="">All Status</option>
+                    <option value="granted">✅ Granted Only</option>
+                    <option value="denied">❌ Denied Only</option>
+                    <option value="emergency">🚨 Emergency Only</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select form-select-sm"
+                        id="filter-action" onchange="filterLogs()">
+                    <option value="">All Actions</option>
+                    <option value="ACCESS_EHR">EHR Access</option>
+                    <option value="ACCESS_REPORT">Report Access</option>
+                    <option value="ACCESS_LAB">Lab Access</option>
+                    <option value="EMERGENCY_TOKEN_ISSUED">Token Issued</option>
+                    <option value="EMERGENCY_TOKEN_USED">Token Used</option>
+                    <option value="EMERGENCY_TOKEN_EXPIRED">Token Expired</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0" id="audit-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Resource</th>
+                    <th>Status</th>
+                    <th>Emergency</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody id="audit-body">
+                <tr>
+                    <td colspan="7" class="text-center py-4">
+                        <i class="fas fa-spinner fa-spin"></i> Loading...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal fade" id="detailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">
+                    <i class="fas fa-info-circle me-2"></i>Access Decision Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('page-title').textContent = 'Audit Logs';
+
+let allLogs = [];
+
+async function loadLogs() {
+    try {
+        const res = await fetch(`${API_BASE}/audit/logs/`, {
+            headers: authHeaders()
+        });
+        const data = await res.json();
+        allLogs = data.logs || [];
+        renderLogs(allLogs);
+    } catch(e) {
+        document.getElementById('audit-body').innerHTML =
+            '<tr><td colspan="7" class="text-center text-danger">Error loading logs</td></tr>';
+    }
+}
+
+function filterLogs() {
+    const statusFilter = document.getElementById('filter-status').value;
+    const actionFilter = document.getElementById('filter-action').value;
+
+    let filtered = allLogs;
+
+    if (statusFilter === 'granted') filtered = filtered.filter(l => l.access_granted);
+    if (statusFilter === 'denied') filtered = filtered.filter(l => !l.access_granted);
+    if (statusFilter === 'emergency') filtered = filtered.filter(l => l.is_emergency);
+    if (actionFilter) filtered = filtered.filter(l => l.action === actionFilter);
+
+    renderLogs(filtered);
+}
+
+function renderLogs(logs) {
+    const tbody = document.getElementById('audit-body');
+
+    if (logs.length === 0) {
+        tbody.innerHTML =
+            '<tr><td colspan="7" class="text-center text-muted py-4">No logs found</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = logs.map((log, idx) => `
+        <tr>
+            <td style="font-size:12px;">
+                ${new Date(log.timestamp).toLocaleString('en-IN')}
+            </td>
+            <td style="font-size:12px;">${log.user}</td>
+            <td>
+                <span class="badge bg-primary" style="font-size:11px;">
+                    ${log.action}
+                </span>
+            </td>
+            <td style="font-size:12px;">
+                ${log.resource_type || '-'}
+                ${log.resource_id ? '#' + log.resource_id : ''}
+            </td>
+            <td>
+                ${log.access_granted ?
+                    '<span class="badge bg-success">✅ Granted</span>' :
+                    '<span class="badge bg-danger">❌ Denied</span>'}
+            </td>
+            <td>
+                ${log.is_emergency ?
+                    '<span class="badge bg-warning text-dark">🚨 Yes</span>' :
+                    '<span class="badge bg-secondary">No</span>'}
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary"
+                        onclick="showDetails(${idx})">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function showDetails(idx) {
+    const log = allLogs[idx];
+    const details = log.details || {};
+
+    const checksPassedHtml = (details.checks_passed || []).map(c =>
+        `<div class="check-passed"><i class="fas fa-check me-1"></i>${c}</div>`
+    ).join('');
+
+    const checksFailedHtml = (details.checks_failed || []).map(c =>
+        `<div class="check-failed"><i class="fas fa-times me-1"></i>${c}</div>`
+    ).join('');
+
+    document.getElementById('modal-body').innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-muted">User Info</h6>
+                <table class="table table-sm">
+                    <tr><td><strong>User</strong></td><td>${log.user}</td></tr>
+                    <tr><td><strong>Role</strong></td>
+                        <td>${details.user_role || '-'}</td></tr>
+                    <tr><td><strong>Department</strong></td>
+                        <td>${details.user_department || '-'}</td></tr>
+                    <tr><td><strong>Clearance</strong></td>
+                        <td>Level ${details.clearance_level || '-'}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted">Resource Info</h6>
+                <table class="table table-sm">
+                    <tr><td><strong>Type</strong></td>
+                        <td>${log.resource_type || '-'}</td></tr>
+                    <tr><td><strong>ID</strong></td>
+                        <td>${log.resource_id || '-'}</td></tr>
+                    <tr><td><strong>Sensitivity</strong></td>
+                        <td>Level ${details.resource_sensitivity || '-'}</td></tr>
+                    <tr><td><strong>Emergency</strong></td>
+                        <td>${log.is_emergency ? '🚨 Yes' : 'No'}</td></tr>
+                </table>
+            </div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-success">Checks Passed</h6>
+                ${checksPassedHtml || '<p class="text-muted">None</p>'}
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-danger">Checks Failed</h6>
+                ${checksFailedHtml || '<p class="text-muted">None</p>'}
+            </div>
+        </div>
+    `;
+
+    new bootstrap.Modal(document.getElementById('detailsModal')).show();
+}
+
+loadLogs();
+</script>
+{% endblock %}
