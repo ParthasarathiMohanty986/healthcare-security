@@ -3,10 +3,16 @@ from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-healthcare-secret-key-2024'
+import os
+from dotenv import load_dotenv
 
-DEBUG = True
+load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+DEBUG = os.getenv("DEBUG") == "True"
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [

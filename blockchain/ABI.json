@@ -1,0 +1,53 @@
+// This file should contain the ABI (Application Binary Interface) from your compiled smart contract
+// Steps to get it:
+// 1. Go to Remix IDE: https://remix.ethereum.org
+// 2. Copy the smart contract code from blockchain/AuditLog.sol to Remix
+// 3. Compile the contract in the Solidity Compiler panel
+// 4. Click the ABI button to copy the full ABI JSON
+// 5. Paste the entire JSON content here
+
+// Example ABI structure (DO NOT USE - this is just for reference):
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "logId",
+        "type": "uint256"
+      }
+    ],
+    "name": "LogCreated",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "_action",
+        "type": "string"
+      }
+    ],
+    "name": "createAuditLog",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
